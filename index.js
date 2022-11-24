@@ -1,0 +1,473 @@
+"use strict";
+class Token {
+}
+class Variable extends Token {
+    constructor(name) {
+        super();
+        this.name = name;
+    }
+    static find(stack, tokens, offset) {
+        if (tokens[offset + 1] instanceof Variable) {
+            return [tokens[offset + 1], offset + 1];
+        }
+        return undefined;
+    }
+}
+class Operator extends Token {
+    constructor(name) {
+        super();
+        this.operation = name;
+    }
+    static find(stack, tokens, offset) {
+        if (tokens[offset + 1] instanceof Operator) {
+            return [tokens[offset + 1], offset + 1];
+        }
+        return undefined;
+    }
+    static getEvaluationFor(first, second, operation) {
+        if (operation == "∧") {
+            return first && second;
+        }
+        if (operation == "∨") {
+            return first || second;
+        }
+        if (operation == "⇒") {
+            return !first || second;
+        }
+        if (operation == "≡") {
+            return (!first || second) && (!second || first);
+        }
+        if (operation == "⊕") {
+            return (first || second) && !(first && second);
+        }
+    }
+}
+class UnaryOperator extends Token {
+    constructor(name) {
+        super();
+        this.operation = name;
+    }
+    static find(stack, tokens, offset) {
+        if (tokens[offset + 1] instanceof UnaryOperator) {
+            return [tokens[offset + 1], offset + 1];
+        }
+        return undefined;
+    }
+}
+class Open extends Token {
+    constructor() {
+        super();
+    }
+    static find(stack, tokens, offset) {
+        if (tokens[offset + 1] instanceof Open) {
+            return [tokens[offset + 1], offset + 1];
+        }
+        return undefined;
+    }
+}
+class Close extends Token {
+    constructor() {
+        super();
+    }
+    static find(stack, tokens, offset) {
+        if (tokens[offset + 1] instanceof Close) {
+            return [tokens[offset + 1], offset + 1];
+        }
+        return undefined;
+    }
+}
+class Expr extends Token {
+    constructor(value) {
+        super();
+        this.myPath = [];
+        this.value = value;
+    }
+    stringify() {
+        if (this.isOfPath([Variable])) {
+            let variable = this.value[0];
+            return variable.name;
+        }
+        if (this.isOfPath([UnaryOperator, Expr])) {
+            let expr = this.value[1];
+            return "¬" + expr.stringify();
+        }
+        if (this.isOfPath([Expr, Operator, Expr])) {
+            let expr1 = this.value[0];
+            let expr2 = this.value[2];
+            let oper = this.value[1];
+            return `${expr1.stringify()} ${oper.operation} ${expr2.stringify()}`;
+        }
+        if (this.isOfPath([Open, Expr, Close])) {
+            let expr = this.value[1];
+            return "(" + expr.stringify() + ")";
+        }
+    }
+    isOfPath(path) {
+        for (let i = 0; i < this.myPath.length; i++) {
+            if (this.myPath[i].name != path[i].name) {
+                return false;
+            }
+        }
+        return true;
+    }
+    eval(truthValues) {
+        if (this.isOfPath([Variable])) {
+            let variable = this.value[0];
+            if (truthValues.has(variable.name)) {
+                return truthValues.get(variable.name);
+            }
+            else {
+                throw Error("Variable is not given truth value.");
+            }
+        }
+        if (this.isOfPath([UnaryOperator, Expr])) {
+            let expr = this.value[1];
+            return !expr.eval(truthValues);
+        }
+        if (this.isOfPath([Expr, Operator, Expr])) {
+            let expr1 = this.value[0];
+            let expr2 = this.value[2];
+            let oper = this.value[1];
+            return Operator.getEvaluationFor(expr1.eval(truthValues), expr2.eval(truthValues), oper.operation);
+        }
+        if (this.isOfPath([Open, Expr, Close])) {
+            let expr = this.value[1];
+            return expr.eval(truthValues);
+        }
+    }
+    static find(stack, tokens, offset) {
+        for (const path of Expr.paths) {
+            if (stack.length > 0) {
+                if (stack[stack.length - 1][0].name == path[0].name) {
+                    continue;
+                }
+                if (stack[stack.length - 1][0].name == "UnaryOperator" &&
+                    path[0].name == "Expr") {
+                    continue;
+                }
+            }
+            let now = [];
+            Object.assign(now, stack);
+            let searchValue = [];
+            let off = offset;
+            let success = true;
+            now.push(path);
+            for (const route of path) {
+                let answer = route.find(now, tokens, off);
+                if (answer == undefined) {
+                    success = false;
+                    break;
+                }
+                let ans = answer[0];
+                let offs = answer[1];
+                off = offs;
+                searchValue.push(ans);
+            }
+            if (success) {
+                let ret = new Expr(searchValue);
+                ret.myPath = path;
+                return [ret, off];
+            }
+        }
+        return undefined;
+    }
+}
+Expr.paths = [
+    [Expr, Operator, Expr],
+    [UnaryOperator, Expr],
+    [Open, Expr, Close],
+    [Variable],
+];
+function getTokenFor(input) {
+    let map = new Map();
+    map.set("(", new Open());
+    map.set(")", new Close());
+    map.set("[", new Open());
+    map.set("]", new Close());
+    map.set("{", new Open());
+    map.set("}", new Close());
+    map.set("&", new Operator("∧"));
+    map.set("and", new Operator("∧"));
+    map.set("AND", new Operator("∧"));
+    map.set("^", new Operator("∧"));
+    map.set(",", new Operator("∧"));
+    map.set("OR", new Operator("∨"));
+    map.set("or", new Operator("∨"));
+    map.set("|", new Operator("∨"));
+    map.set("XOR", new Operator("⊕"));
+    map.set("xor", new Operator("⊕"));
+    map.set("IMPLIES", new Operator("⇒"));
+    map.set("implies", new Operator("⇒"));
+    map.set("WHEN", new Operator("⇒"));
+    map.set("IF", new Operator("⇒"));
+    map.set("->", new Operator("⇒"));
+    map.set("=>", new Operator("⇒"));
+    map.set("<=>", new Operator("≡"));
+    map.set("<->", new Operator("≡"));
+    map.set("IFF", new Operator("≡"));
+    map.set("~", new UnaryOperator("NOT"));
+    map.set("NOT", new UnaryOperator("NOT"));
+    map.set("not", new UnaryOperator("NOT"));
+    map.set("!", new UnaryOperator("NOT"));
+    return map.get(input);
+}
+function getExprFromTokens(tokens) {
+    let ret = Expr.find([], tokens, -1);
+    if (ret == undefined) {
+        return undefined;
+    }
+    if (ret[1] != tokens.length - 1) {
+        let tryAgain = [];
+        let remainingTokens = tokens.splice(ret[1] + 1);
+        tryAgain.push(new Open());
+        tryAgain.push(...tokens.slice(0, ret[1] + 1));
+        tryAgain.push(new Close());
+        tryAgain.push(...remainingTokens);
+        return getExprFromTokens(tryAgain);
+    }
+    return ret[0];
+}
+function tokenize(input) {
+    input += " ";
+    let madeWord = "";
+    let tokens = [];
+    let append = [];
+    for (const char of input) {
+        if (char == " ") {
+            if (madeWord == "") {
+                continue;
+            }
+            let variable = new Variable(madeWord);
+            tokens.push(variable);
+            for (const token of append) {
+                tokens.push(token);
+            }
+            append = [];
+            madeWord = "";
+            continue;
+        }
+        let charToken = getTokenFor(char);
+        if (charToken != undefined) {
+            if (charToken instanceof Close) {
+                append.push(charToken);
+            }
+            else {
+                tokens.push(charToken);
+            }
+            continue;
+        }
+        madeWord += char;
+        let token = getTokenFor(madeWord);
+        if (token != undefined) {
+            tokens.push(token);
+            madeWord = "";
+        }
+    }
+    return tokens;
+}
+class Sentence {
+    constructor(name) {
+        this.name = name;
+    }
+    toString() {
+        return this.name;
+    }
+    equals(other) {
+        if (!(other instanceof Sentence)) {
+            return false;
+        }
+        return other.name == this.name;
+    }
+}
+class Sentence_I {
+    constructor(P, Q) {
+        this.P = P;
+        this.Q = Q;
+    }
+    toString() {
+        return `(${this.P.toString()} → ${this.Q.toString()})`;
+    }
+    equals(other) {
+        if (!(other instanceof Sentence_I)) {
+            return false;
+        }
+        return this.P.equals(other.P) && this.Q.equals(other.Q);
+    }
+}
+class Sentence_N {
+    constructor(P) {
+        this.P = P;
+    }
+    toString() {
+        return `¬(${this.P.toString()})`;
+    }
+    equals(other) {
+        if (!(other instanceof Sentence_N)) {
+            return false;
+        }
+        return other.P.equals(this.P);
+    }
+}
+class Sequent {
+    constructor() {
+        this.gamma = [];
+        this.delta = [];
+        this.justification = [];
+    }
+    depthProve(indent = 0) {
+        let out = "";
+        out += `${"\t".repeat(indent)}----------------------------------------\n`;
+        let iter = this.possible();
+        if (iter.length == 0) {
+            return "COULD NOT PROVE\n";
+        }
+        let poss = iter[0][0];
+        for (let seq of poss) {
+            out += `${"\t".repeat(indent)}${seq.toString()} (${iter[0][1]})\n`;
+            if (!seq.isAxiom()) {
+                out += seq.depthProve(indent + 1);
+            }
+            this.justification.push(seq);
+        }
+        return out;
+    }
+    breadthProve() {
+    }
+    toString() {
+        return `${this.gamma.join(", ")} ⇒ ${this.delta.join(",")}`;
+    }
+    isAxiom() {
+        for (let i = 0; i < this.gamma.length; i++) {
+            for (let j = 0; j < this.delta.length; j++) {
+                if (this.gamma[i].toString() == this.delta[j].toString()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    possible() {
+        let poss = [];
+        for (let phi of this.delta) {
+            if (phi instanceof Sentence_N) {
+                let seq = new Sequent();
+                seq.gamma = [...this.gamma, phi.P];
+                seq.delta = [];
+                for (let psi of this.delta) {
+                    if (!phi.equals(psi)) {
+                        seq.delta.push(psi);
+                    }
+                }
+                poss.push([[seq], "⇒¬"]);
+            }
+            if (phi instanceof Sentence_I) {
+                let p = phi.P;
+                let q = phi.Q;
+                let seq = new Sequent();
+                seq.gamma = [...this.gamma, p];
+                seq.delta = [];
+                for (let psi of this.delta) {
+                    if (!phi.equals(psi)) {
+                        seq.delta.push(psi);
+                    }
+                }
+                seq.delta.push(q);
+                poss.push([[seq], "⇒→"]);
+            }
+        }
+        if (poss.length > 0) {
+            return poss;
+        }
+        for (let phi of this.gamma) {
+            if (phi instanceof Sentence_N) {
+                let seq = new Sequent();
+                seq.delta = [...this.delta, phi.P];
+                seq.gamma = [];
+                for (let psi of this.gamma) {
+                    if (!phi.equals(psi)) {
+                        seq.gamma.push(psi);
+                    }
+                }
+                poss.push([[seq], "¬⇒"]);
+            }
+            if (phi instanceof Sentence_I) {
+                let p = phi.P;
+                let q = phi.Q;
+                let seq1 = new Sequent();
+                seq1.delta = [...this.delta, p];
+                seq1.gamma = [];
+                for (let psi of this.gamma) {
+                    if (!phi.equals(psi)) {
+                        seq1.gamma.push(psi);
+                    }
+                }
+                let seq2 = new Sequent();
+                seq2.delta = [...this.delta];
+                seq2.gamma = [q];
+                for (let psi of this.gamma) {
+                    if (!phi.equals(psi)) {
+                        seq2.gamma.push(psi);
+                    }
+                }
+                poss.push([[seq1, seq2], "→⇒"]);
+            }
+        }
+        return poss;
+    }
+}
+function And(P, Q) {
+    return new Sentence_N(new Sentence_I(P, new Sentence_N(Q)));
+}
+function Or(P, Q) {
+    return new Sentence_I(new Sentence_N(P), Q);
+}
+function fromParserExpression(expr) {
+    if (expr.isOfPath([Expr, Operator, Expr])) {
+        let first = fromParserExpression(expr.value[0]);
+        let second = fromParserExpression(expr.value[2]);
+        let op = expr.value[1];
+        if (op.operation === "∧") {
+            return And(first, second);
+        }
+        if (op.operation === "∨") {
+            return Or(first, second);
+        }
+        if (op.operation === "⇒") {
+            return new Sentence_I(first, second);
+        }
+        if (op.operation === "≡") {
+            return And(new Sentence_I(first, second), new Sentence_I(second, first));
+        }
+        if (op.operation === "⊕") {
+            return And(Or(first, second), new Sentence_N(And(first, second)));
+        }
+    }
+    if (expr.isOfPath([Open, Expr, Close])) {
+        let first = fromParserExpression(expr.value[1]);
+        return first;
+    }
+    if (expr.isOfPath([UnaryOperator, Expr])) {
+        let first = fromParserExpression(expr.value[1]);
+        return new Sentence_N(first);
+    }
+    if (expr.isOfPath([Variable])) {
+        let first = expr.value[0].name;
+        return new Sentence(first);
+    }
+    return new Sentence("DEFAULT");
+}
+function update() {
+    let input = document.getElementById("query");
+    let output = document.getElementById("output");
+    let expr = getExprFromTokens(tokenize(input.value));
+    if (expr == undefined) {
+        return;
+    }
+    else {
+        let test = fromParserExpression(expr);
+        let base = new Sequent();
+        base.delta = [test];
+        let final = base.toString() + "\n" + base.depthProve();
+        output.textContent = final;
+    }
+}
